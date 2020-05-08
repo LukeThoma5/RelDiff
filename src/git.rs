@@ -1,7 +1,7 @@
 use git2::{Repository, BranchType, Commit, Oid};
 use anyhow::{Result, Context, anyhow};
 use std::collections::HashSet;
-use crate::CliOptions;
+use crate::{CliOptions, OPTS};
 
 fn check_next_parent<'repo>(
     next_parent: &mut Option<Commit<'repo>>,
@@ -38,7 +38,8 @@ fn check_next_parent<'repo>(
     Ok(None)
 }
 
-pub fn get_commits<'repo>(repo: &'repo Repository, opts: &CliOptions) -> Result<Vec<Commit<'repo>>> {
+pub fn get_commits<'repo>(repo: &'repo Repository) -> Result<Vec<Commit<'repo>>> {
+    let opts = &OPTS;
     let base_branch = repo.find_branch(&opts.base_branch, BranchType::Local)
         .with_context(|| {
             format!("Failed to find base branch: {}", &opts.base_branch)
