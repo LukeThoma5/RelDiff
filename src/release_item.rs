@@ -28,6 +28,9 @@ impl ReleaseItem {
             sha1: commit.id(),
             commit_summary: commit.message()
                 .ok_or(anyhow!("Failed to get commit message for {}", commit.id()))?
+                .lines()
+                .next()
+                .ok_or(anyhow!("Failed to get first line of commit message for {}", commit.id()))?
                 .to_owned(),
             ids: Vec::new(),
             assignables: None

@@ -31,7 +31,20 @@ pub struct Assignable
     pub name: String,
     pub description: String,
     //#[serde(with = "serde_with::json::nested")]
-    entity_type: EntityType
+    pub entity_type: EntityType
+}
+
+impl Assignable {
+    pub fn nice_description(&self) -> String {
+        dissolve::strip_html_tags(&self.description)
+            .iter()
+            .filter_map(|i| {
+                let t = i.trim();
+                if t.len() == 0 { None } else { Some(t) }
+            })
+            .collect::<Vec<_>>()
+            .join("\n\t")
+    }
 }
 
 
@@ -39,7 +52,7 @@ pub struct Assignable
 #[derive(Deserialize, Debug, Clone)]
 pub struct EntityType
 {
-    id: u32
+    pub id: u32
 }
 
 

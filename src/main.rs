@@ -13,6 +13,7 @@ mod cli;
 mod release_item;
 pub use cli::*;
 pub use release_item::*;
+use crate::target_process::{Assignable, EntityType};
 
 lazy_static! {
     static ref OPTS: CliOptions = CliOptions::from_args();
@@ -27,7 +28,7 @@ impl fmt::Display for ItemWriter<'_> {
             write!(f, "{}) {}\n", index+1, item.commit_summary)?;
             if let Some(ref assignables) = item.assignables {
                 for assignable  in assignables{
-                    write!(f, "\tRR Ref: {}\n\tName: {}\n\tDescription: {}\n", assignable.id, assignable.name, assignable.description)?;
+                    write!(f, "\tRR Ref: {}\n\tName: {}\n\tDescription: {}\n", assignable.id, assignable.name, assignable.nice_description())?;
                 }
             }
         }
@@ -58,7 +59,9 @@ async fn main() -> anyhow::Result<()> {
 
     match (tp, OPTS.offline) {
         (Some(tp), false) => {
-            target_process::add_tp_data_async(&mut items, &tp).await;
+            if let Err(e) = target_process::add_tp_data_async(&mut items, &tp).await {
+                eprintln!("{:?}", e);
+            }
         },
         (None, false) => {
             eprintln!("Failed to load environment variables for TP integration. Run with --offline to hide this warning.")
@@ -69,6 +72,7 @@ async fn main() -> anyhow::Result<()> {
     let writer = ItemWriter(&items);
 
     println!("{}", writer);
+
 
     Ok(())
 }
