@@ -1,7 +1,7 @@
-use git2::{Repository, BranchType, Commit, Oid};
-use anyhow::{Result, Context, anyhow};
+use crate::OPTS;
+use anyhow::{anyhow, Context, Result};
+use git2::{BranchType, Commit, Oid, Repository};
 use std::collections::HashSet;
-use crate::{CliOptions, OPTS};
 
 fn check_next_parent<'repo>(
     next_parent: &mut Option<Commit<'repo>>,
@@ -40,12 +40,12 @@ fn check_next_parent<'repo>(
 
 pub fn get_commits<'repo>(repo: &'repo Repository) -> Result<Vec<Commit<'repo>>> {
     let opts = &OPTS;
-    let base_branch = repo.find_branch(&opts.base_branch, BranchType::Local)
-        .with_context(|| {
-            format!("Failed to find base branch: {}", &opts.base_branch)
-        })?;
+    let base_branch = repo
+        .find_branch(&opts.base_branch, BranchType::Local)
+        .with_context(|| format!("Failed to find base branch: {}", &opts.base_branch))?;
 
-    let next_release_branch = repo.find_branch(&opts.release_branch, BranchType::Local)
+    let next_release_branch = repo
+        .find_branch(&opts.release_branch, BranchType::Local)
         .with_context(|| {
             format!(
                 "Failed to find next release branch: {}",
@@ -53,11 +53,15 @@ pub fn get_commits<'repo>(repo: &'repo Repository) -> Result<Vec<Commit<'repo>>>
             )
         })?;
 
-    let base = base_branch.into_reference().peel_to_commit().with_context(
-        || {
-            format!("Failed to find the commit for branch: {}", &opts.base_branch)
-        },
-    )?;
+    let base = base_branch
+        .into_reference()
+        .peel_to_commit()
+        .with_context(|| {
+            format!(
+                "Failed to find the commit for branch: {}",
+                &opts.base_branch
+            )
+        })?;
 
     let release = next_release_branch
         .into_reference()
@@ -74,27 +78,23 @@ pub fn get_commits<'repo>(repo: &'repo Repository) -> Result<Vec<Commit<'repo>>>
     let mut seen_commits = HashSet::new();
 
     if base.id() == release.id() {
-        return Err(anyhow!("Branches are identical"))
+        return Err(anyhow!("Branches are identical"));
     }
 
     let mut next_base = Some(base);
     let mut next_release = Some(release);
 
     let match_commit: Option<Oid> = loop {
-        if let Some(matched) = check_next_parent(
-            &mut next_base,
-            &mut base_commits,
-            &mut seen_commits,
-        ).with_context(|| "Failed to get parents of base")?
+        if let Some(matched) =
+            check_next_parent(&mut next_base, &mut base_commits, &mut seen_commits)
+                .with_context(|| "Failed to get parents of base")?
         {
             break Some(matched);
         }
 
-        if let Some(matched) = check_next_parent(
-            &mut next_release,
-            &mut release_commits,
-            &mut seen_commits,
-        ).with_context(|| "Failed to get parents of release")?
+        if let Some(matched) =
+            check_next_parent(&mut next_release, &mut release_commits, &mut seen_commits)
+                .with_context(|| "Failed to get parents of release")?
         {
             break Some(matched);
         }
@@ -122,7 +122,6 @@ pub fn get_commits<'repo>(repo: &'repo Repository) -> Result<Vec<Commit<'repo>>>
         // Filter out any duplicates (e.g. cherry-picks)
         .filter(|rel| {
             !base_commits.iter().any(|base| {
-
                 let b_author = base.author();
                 let rel_author = rel.author();
                 match (b_author.email(), rel_author.email()) {
