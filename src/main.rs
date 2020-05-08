@@ -8,83 +8,12 @@ use std::fmt;
 use std::borrow::Borrow;
 
 mod git;
+mod target_process;
+mod cli;
+mod release_item;
+pub use cli::*;
+pub use release_item::*;
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "Release Diff", about = "Generate a release summary")]
-pub struct CliOptions {
-    /// Input repo
-    #[structopt(parse(from_os_str),
-    default_value = "./",
-    short = "r",
-    long = "repo"
-    )]
-    repo: PathBuf,
-
-    #[structopt(name = "BASE BRANCH")]
-    base_branch: String,
-
-    #[structopt(name = "RELEASE BRANCH")]
-    release_branch: String,
-
-    #[structopt(parse(from_os_str),
-    short = "o",
-    long = "output"
-    )]
-    output_file: Option<PathBuf>,
-
-    #[structopt(long = "offline")]
-    no_network: bool
-}
-
-#[derive(Debug, Clone)]
-pub enum ReleaseIdentifier
-{
-    RRQ(u32),
-    TargetProgress(u32)
-}
-
-#[derive(Debug, Clone)]
-pub struct ReleaseItem
-{
-    pub sha1: Oid,
-    pub commit_summary: String,
-    pub ids: Vec<ReleaseIdentifier>
-}
-
-impl ReleaseItem {
-    pub fn new(commit: Commit<'_>) -> Result<Self> {
-
-        let mut r = Self {
-            sha1: commit.id(),
-            commit_summary: commit.message()
-                .ok_or(anyhow!("Failed to get commit message for {}", commit.id()))?
-                .to_owned(),
-            ids: Vec::new()
-        };
-
-
-        use regex::Regex;
-
-        fn extract_matches<'a>(captures: CaptureMatches<'a, 'a>, ctor: impl Fn(u32) -> ReleaseIdentifier + 'a) -> impl Iterator<Item = ReleaseIdentifier> + 'a {
-            captures
-                .filter_map(|i| i.get(2))
-                .filter_map(|i| i.as_str().parse().ok())
-                .map(ctor)
-        };
-
-        lazy_static! {
-            static ref IDREGEX: Regex = Regex::new(r"(id|ID):(\d+)").unwrap();
-            static ref RRQREGEX: Regex = Regex::new(r"(rrq|RRQ):(\d+)").unwrap();
-
-        }
-
-        r.ids = extract_matches(IDREGEX.captures_iter(&r.commit_summary), |i| ReleaseIdentifier::TargetProgress(i))
-            .chain(extract_matches(RRQREGEX.captures_iter(&r.commit_summary), |i| ReleaseIdentifier::RRQ(i)))
-            .collect::<Vec<ReleaseIdentifier>>();
-
-        Ok(r)
-    }
-}
 lazy_static! {
     static ref OPTS: CliOptions = CliOptions::from_args();
 }
@@ -94,42 +23,23 @@ pub struct ItemWriter<'item>(&'item Vec<ReleaseItem>);
 impl fmt::Display for ItemWriter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Release {} -> {}\n", OPTS.base_branch, OPTS.release_branch)?;
-        for item in self.0 {
-            write!(f, "{}", item.commit_summary)?;
+        for (index, item) in self.0.iter().enumerate() {
+            write!(f, "{}) {}\n", index+1, item.commit_summary)?;
+            if let Some(ref assignables) = item.assignables {
+                for assignable  in assignables{
+                    write!(f, "\tRR Ref: {}\n\tName: {}\n\tDescription: {}\n", assignable.id, assignable.name, assignable.description)?;
+                }
+            }
         }
 
         Ok(())
     }
 }
 
-use dotenv;
-
-struct TargetProcessSettings
-{
-    pub url: String,
-    pub access_token: String
-}
-
-fn load_environment_settings() -> Option<TargetProcessSettings>
-{
-    let url = dotenv::var("RD_TARAGET_PROCESS_URL").ok()?;
-    let access_token = dotenv::var("RD_ACCESS_TOKEN").ok()?;
-
-    Some(TargetProcessSettings
-    {
-        access_token,
-        url
-    })
-}
-
-async fn add_tp_data_async(items: &mut Vec<ReleaseItem>, settings: &TargetProcessSettings) {
-
-}
-
 #[tokio::main]
-async fn main() -> Result<()> {
-    let dotenv_path = dotenv::dotenv().ok();
-    dbg!("Loading environment from {:?}", dotenv_path);
+async fn main() -> anyhow::Result<()> {
+    let _dotenv_path = dotenv::dotenv().ok();
+    dbg!("Loading environment from {:?}", _dotenv_path);
 
     let repo = Repository::open(&OPTS.repo).with_context(|| {
         format!("failed to open repository: {:?}", OPTS.repo)
@@ -139,23 +49,18 @@ async fn main() -> Result<()> {
         || "Failed to find commit difference between branches",
     )?;
 
-    // dbg!("Commits {:?}", &commits);
-
     let mut items = commits.into_iter()
         .map(ReleaseItem::new)
         .collect::<Result<Vec<_>>>()
         .context("Failed to convert commits")?;
 
-    dbg!("items {:?}", &items);
+    let tp = target_process::load_environment_settings();
 
-
-    let tp = load_environment_settings();
-
-    match (tp, OPTS.no_network) {
+    match (tp, OPTS.offline) {
         (Some(tp), false) => {
-            add_tp_data_async(&mut items, &tp).await;
+            target_process::add_tp_data_async(&mut items, &tp).await;
         },
-        (None, true) => {
+        (None, false) => {
             eprintln!("Failed to load environment variables for TP integration. Run with --offline to hide this warning.")
         }
         _ => {}
